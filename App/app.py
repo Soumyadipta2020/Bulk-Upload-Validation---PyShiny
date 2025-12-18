@@ -314,7 +314,7 @@ def _normalize_dates_for_export(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 def validate_single_file(df, rules_single, file_id_single):
     expected_columns = rules_single["columns"]
     transform_config = rules_single.get("transform_config", {"type": "none"})
-    if set(expected_columns).issubset(set(df.columns)):
+    if not set(expected_columns).issubset(set(df.columns)):
         return {
             "valid": False,
             "message": f"{file_id_single}: Invalid columns. Expected {expected_columns}, got {list(df.columns)}",
@@ -745,6 +745,8 @@ def validate_file(df_input, rules, file_id, filename):
                 test_success[sheet_name] = False
 
         if all(test_success.values()):
+            test_success_sheets = {}
+            test_success_massage = {}
             for sheet_name, s_rules in sheet_rules.items():
                 export_func = s_rules.get("export_func", None)
                 export_path = s_rules.get("export_path", None)
@@ -752,17 +754,26 @@ def validate_file(df_input, rules, file_id, filename):
                 df_for_export = _normalize_dates_for_export(
                     transformed[sheet_name], s_rules
                 )
-                success, export_msg = export_validated_file(
-                    df_for_export,
-                    export_path,
-                    file_id,
-                    export_func=export_func,
+                test_success_sheets[sheet_name], test_success_massage[sheet_name] = (
+                    export_validated_file(
+                        df_for_export,
+                        export_path,
+                        file_id,
+                        export_func=export_func,
+                    )
                 )
             sheet_list = ", ".join(sheet_rules.keys())
-            return {
-                "valid": True,
-                "message": f"{file_id}: Sheets {sheet_list} valid ✅ and exported ✅",
-            }
+            if not all(test_success_sheets.values()):
+                return {
+                    "valid": False,
+                    "message": f"{file_id}: Sheets {sheet_list} valid ✅ But some exports failed ❌",
+                    "warning": "Export skipped",
+                }
+            else:
+                return {
+                    "valid": True,
+                    "message": f"{file_id}: Sheets {sheet_list} valid ✅ and exported ✅",
+                }
         else:
             return {
                 "valid": False,
@@ -1097,7 +1108,7 @@ def create_sample_file(file_type):
                 "job_type": ["A", "B", "C"],
                 "attrition_count": [5.2, 2.1, 4.8],
                 # hire_date uses a different format (yyyy/mm/dd) per new rules
-                "hire_date": ["2025/01/05", "2025/01/10", "2025/01/18"],
+                "hire_date": ["2025/01/13", "2025/01/13", "2025/01/06"],
             }
         )
     elif file_type == "recruitment":
