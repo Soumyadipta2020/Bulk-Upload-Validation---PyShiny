@@ -334,16 +334,17 @@ def validate_single_file(df, rules_single, file_id_single):
             .replace("yy", "%y")
             .replace("dd", "%d")
         )
-
+    
     for col, expected_type in expected_types.items():
         if col in df.columns:
             try:
                 if expected_type == "numeric":
                     try:
-                        pd.to_numeric(df[col], errors="raise")
+                        pd.to_numeric(df[col].dropna(how='all'), errors="raise")
                     except Exception:
                         first_bad = df[
                             pd.to_numeric(df[col], errors="coerce").isna()
+                            & df[col].notna()
                         ].index[0]
                         row_number = first_bad + 1
                         first_val = df[col].iloc[first_bad]
@@ -356,16 +357,12 @@ def validate_single_file(df, rules_single, file_id_single):
                         }
                 elif expected_type == "string":
                     try:
-                        df[col].astype(str)
+                        df[col].dropna(how='all').astype(str)
                     except Exception:
-                        first_bad = df.index[0]
-                        row_number = first_bad + 1
-                        first_val = df[col].iloc[first_bad]
                         return {
                             "valid": False,
                             "message": (
-                                f"{file_id_single}: Column '{col}' has invalid string format. "
-                                f"Found '{first_val}' at row {row_number}"
+                                f"{file_id_single}: Column '{col}' has invalid string format."
                             ),
                         }
                 elif expected_type == "date":
@@ -376,31 +373,25 @@ def validate_single_file(df, rules_single, file_id_single):
                         py_fmt = _convert_fmt(fmt)
                         # coerce parse to find bad values
                         parsed = pd.to_datetime(
-                            df[col].astype(str), format=py_fmt, errors="coerce"
+                            df[col].dropna(how='all').astype(str), format=py_fmt, errors="coerce"
                         )
                         if parsed.isna().any():
-                            first_bad = parsed[parsed.isna()].index[0]
-                            row_number = first_bad + 1
-                            first_val = df[col].iloc[first_bad]
                             return {
                                 "valid": False,
                                 "message": (
                                     f"{file_id_single}: Column '{col}' has invalid date format. "
-                                    f"Expected format '{fmt}'. Found '{first_val}' at row {row_number}"
+                                    f"Expected format '{fmt}'."
                                 ),
                             }
                     else:
                         # fallback: try to parse using pandas inference
-                        pd.to_datetime(df[col], errors="raise")
+                        pd.to_datetime(df[col].dropna(how='all'), errors="raise")
             except Exception as e:
-                first_idx = df[col].index[0]
-                row_number = first_idx + 2
-                first_val = df[col].iloc[0]
                 return {
                     "valid": False,
                     "message": (
                         f"{file_id_single}: Column '{col}' has invalid type. "
-                        f"Expected {expected_type}. Found '{first_val}' at row {row_number} ({str(e)})"
+                        f"Expected {expected_type}."
                     ),
                 }
 
@@ -647,7 +638,7 @@ def validate_single_file(df, rules_single, file_id_single):
                         "message": f"{file_id_single}: Column '{col}' has null value at row {row_number}",
                     }
             elif isinstance(check, list):
-                invalid_rows = df[~df[col].isin(check)]
+                invalid_rows = df[df[col].notna() & ~df[col].isin(check)]
                 if not invalid_rows.empty:
                     first_idx = invalid_rows.index[0]
                     first_val = df.loc[first_idx, col]
