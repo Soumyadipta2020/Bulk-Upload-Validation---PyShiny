@@ -312,6 +312,24 @@ def _normalize_dates_for_export(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
 # Helper inner that runs the previous single-DataFrame validation logic
 def validate_single_file(df, rules_single, file_id_single):
+    # If the rule specifies `skiprows`, ignore those initial rows when
+    # performing validation. This only affects which DataFrame rows are
+    # validated; existing validation logic and reported row numbers remain
+    # unchanged.
+    print(df)
+    try:
+        skiprows = int(rules_single.get("skiprows", 0) or 0)
+    except Exception:
+        skiprows = 0
+    skiprows = skiprows - 1
+    if skiprows >= 0:
+        df = df.iloc[skiprows:].copy().reset_index(drop=True)
+        print(df)
+        # Use first row as column names after skipping rows
+        df.columns = df.iloc[0]
+        df = df.iloc[1:].reset_index(drop=True)
+    
+    # Column names validation
     expected_columns = rules_single["columns"]
     transform_config = rules_single.get("transform_config", {"type": "none"})
     if not set(expected_columns).issubset(set(df.columns)):
@@ -962,6 +980,7 @@ introduced so validators and UI help text remain accurate.
 """
 validation_rules = {
     "attrition": {
+        "skiprows": 1,
         # Add an extra date column `hire_date` to demonstrate multiple date formats
         "columns": ["week", "job_type", "attrition_count", "hire_date"],
         "types": {
