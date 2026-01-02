@@ -334,6 +334,17 @@ def validate_single_file(df, rules_single, file_id_single):
             .replace("yy", "%y")
             .replace("dd", "%d")
         )
+    def _expected_len_from_pyfmt(py_fmt: str) -> int | None:
+        """Return expected length of a formatted date using `py_fmt` by
+        formatting a sample date. Returns None if formatting fails.
+        """
+        if not py_fmt:
+            return None
+        try:
+            sample = datetime(2000, 11, 22).strftime(py_fmt)
+            return len(sample)
+        except Exception:
+            return None
     
     for col, expected_type in expected_types.items():
         if col in df.columns:
@@ -371,18 +382,37 @@ def validate_single_file(df, rules_single, file_id_single):
                     fmt = col_cfg.get("format")
                     if fmt:
                         py_fmt = _convert_fmt(fmt)
-                        # coerce parse to find bad values
-                        parsed = pd.to_datetime(
-                            df[col].dropna(how='all').astype(str), format=py_fmt, errors="coerce"
-                        )
+                        sample_len = _expected_len_from_pyfmt(py_fmt)
+                        # Prepare series trimmed to expected length when possible
+                        s_all = df[col].astype(str)
+                        s = df[col].dropna(how='all').astype(str)
+                        if sample_len:
+                            s = s.str.slice(0, sample_len)
+                            s_all = s_all.str.slice(0, sample_len)
+                        parsed = pd.to_datetime(s, format=py_fmt, errors="coerce")
                         if parsed.isna().any():
-                            return {
-                                "valid": False,
-                                "message": (
-                                    f"{file_id_single}: Column '{col}' has invalid date format. "
-                                    f"Expected format '{fmt}'."
-                                ),
-                            }
+                            # find first offending original row and value
+                            parsed_all = pd.to_datetime(s_all, format=py_fmt, errors="coerce")
+                            mask = parsed_all.isna() & df[col].notna()
+                            if mask.any():
+                                first_bad = mask[mask].index[0]
+                                row_number = first_bad + 1
+                                first_val = df.loc[first_bad, col]
+                                return {
+                                    "valid": False,
+                                    "message": (
+                                        f"{file_id_single}: Column '{col}' has invalid date format. "
+                                        f"Expected format '{fmt}'. Found '{first_val}' at row {row_number}"
+                                    ),
+                                }
+                            else:
+                                return {
+                                    "valid": False,
+                                    "message": (
+                                        f"{file_id_single}: Column '{col}' has invalid date format. "
+                                        f"Expected format '{fmt}'."
+                                    ),
+                                }
                     else:
                         # fallback: try to parse using pandas inference
                         pd.to_datetime(df[col].dropna(how='all'), errors="raise")
@@ -403,15 +433,18 @@ def validate_single_file(df, rules_single, file_id_single):
             # determine expected format for this date column from date_columns config
             wc_fmt = date_columns_cfg.get(date_col, {}).get("format")
             py_fmt = _convert_fmt(wc_fmt) if wc_fmt else None
+            sample_len = _expected_len_from_pyfmt(py_fmt) if py_fmt else None
             for idx, val in df[date_col].items():
                 if pd.isna(val):
                     continue
                 val_str = str(val)
                 if py_fmt:
+                    if sample_len:
+                        val_str = val_str[:sample_len]
                     d = pd.to_datetime(val_str, format=py_fmt, errors="coerce")
                 else:
                     d = pd.to_datetime(val_str, errors="coerce")
-                if d is pd.NaT:
+                if pd.isna(d):
                     return {
                         "valid": False,
                         "message": f"{file_id_single}: Column '{date_col}' has invalid date '{val_str}' at row {idx + 2}",
@@ -465,15 +498,18 @@ def validate_single_file(df, rules_single, file_id_single):
             col_cfg = date_columns_cfg.get(date_col, {})
             fmt = col_cfg.get("format") if isinstance(col_cfg, dict) else None
             py_fmt = _convert_fmt(fmt) if fmt else None
+            sample_len = _expected_len_from_pyfmt(py_fmt) if py_fmt else None
             for idx, val in df[date_col].items():
                 if pd.isna(val):
                     continue
                 val_str = str(val)
                 if py_fmt:
+                    if sample_len:
+                        val_str = val_str[:sample_len]
                     d = pd.to_datetime(val_str, format=py_fmt, errors="coerce")
                 else:
                     d = pd.to_datetime(val_str, errors="coerce")
-                if d is pd.NaT:
+                if pd.isna(d):
                     return {
                         "valid": False,
                         "message": f"{file_id_single}: Column '{date_col}' has invalid date '{val_str}' at row {idx + 2}",
@@ -494,9 +530,14 @@ def validate_single_file(df, rules_single, file_id_single):
         if not date_range or week_config.get("type") == "none":
             continue
 
-        expected_weeks = pd.date_range(
-            date_range["start"], date_range["end"], freq=date_range.get("freq", "W-MON")
-        )
+        # Respect optional start_offset / end_offset in the per-column range
+        start = pd.to_datetime(date_range["start"])
+        end = pd.to_datetime(date_range["end"])
+        start_offset = date_range.get("start_offset", 0) or 0
+        end_offset = date_range.get("end_offset", 0) or 0
+        start = start + pd.Timedelta(days=int(start_offset))
+        end = end + pd.Timedelta(days=int(end_offset))
+        expected_weeks = pd.date_range(start, end, freq=date_range.get("freq", "W-MON"))
         expected_labels = [d.strftime("%Y-%m-%d") for d in expected_weeks]
 
         # Determine parsing format for actual week labels
@@ -507,9 +548,11 @@ def validate_single_file(df, rules_single, file_id_single):
             # Parse values in the date column using provided format
             if dc_name in df.columns:
                 if py_col_fmt:
-                    parsed = pd.to_datetime(
-                        df[dc_name].astype(str), format=py_col_fmt, errors="coerce"
-                    )
+                    sample_len = _expected_len_from_pyfmt(py_col_fmt)
+                    s = df[dc_name].astype(str)
+                    if sample_len:
+                        s = s.str.slice(0, sample_len)
+                    parsed = pd.to_datetime(s, format=py_col_fmt, errors="coerce")
                     weeks = parsed.dropna().dt.strftime("%Y-%m-%d").unique().tolist()
                 else:
                     parsed = pd.to_datetime(df[dc_name], errors="coerce")
@@ -522,14 +565,16 @@ def validate_single_file(df, rules_single, file_id_single):
             # column_format
             candidate_cols = [c for c in df.columns if c not in expected_columns]
             parse_fmt = (
-                py_col_fmt or _convert_fmt(transform_config.get("column_format"))
-                if transform_config.get("column_format")
-                else None
+                py_col_fmt
+                or (_convert_fmt(transform_config.get("column_format")) if transform_config.get("column_format") else None)
             )
             weeks = []
             for c in candidate_cols:
                 c_str = str(c)
                 if parse_fmt:
+                    c_sample_len = _expected_len_from_pyfmt(parse_fmt)
+                    if c_sample_len:
+                        c_str = c_str[:c_sample_len]
                     d = pd.to_datetime(c_str, format=parse_fmt, errors="coerce")
                 else:
                     d = pd.to_datetime(c_str, errors="coerce")
@@ -559,9 +604,14 @@ def validate_single_file(df, rules_single, file_id_single):
     # Fallback to top-level date_range if present
     date_range = rules_single.get("date_range", None)
     if date_range and week_config.get("type") != "none":
-        expected_weeks = pd.date_range(
-            date_range["start"], date_range["end"], freq=date_range.get("freq", "W-MON")
-        )
+        # Honor optional start_offset / end_offset on top-level date_range too
+        start = pd.to_datetime(date_range["start"])
+        end = pd.to_datetime(date_range["end"])
+        start_offset = date_range.get("start_offset", 0) or 0
+        end_offset = date_range.get("end_offset", 0) or 0
+        start = start + pd.Timedelta(days=int(start_offset))
+        end = end + pd.Timedelta(days=int(end_offset))
+        expected_weeks = pd.date_range(start, end, freq=date_range.get("freq", "W-MON"))
         expected_labels = [d.strftime("%Y-%m-%d") for d in expected_weeks]
 
         if week_config["type"] == "column":
@@ -599,6 +649,9 @@ def validate_single_file(df, rules_single, file_id_single):
             for c in candidate_cols:
                 c_str = str(c)
                 if parse_fmt:
+                    c_sample_len = _expected_len_from_pyfmt(parse_fmt)
+                    if c_sample_len:
+                        c_str = c_str[:c_sample_len]
                     d = pd.to_datetime(c_str, format=parse_fmt, errors="coerce")
                 else:
                     d = pd.to_datetime(c_str, errors="coerce")
