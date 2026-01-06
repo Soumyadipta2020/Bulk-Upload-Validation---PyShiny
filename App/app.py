@@ -1294,7 +1294,7 @@ app_ui = ui.page_sidebar(
         ui.input_file(
             "uploaded_files",
             "Upload Files (CSV or Excel)",
-            accept=[".csv", ".xlsx", ".xls"],
+            accept=[".csv", ".xlsx", ".xls", ".xlsm"],
             multiple=True,
         ),
         ui.br(),
@@ -1341,7 +1341,7 @@ def server(input, output, session):
         try:
             if file_ext == ".csv":
                 return pd.read_csv(file_path)
-            elif file_ext in [".xlsx", ".xls"]:
+            elif file_ext in [".xlsx", ".xls", ".xlsm"]:
                 # Read all sheets first
                 all_sheets = pd.read_excel(file_path, sheet_name=None)
                 if len(all_sheets) == 1:
