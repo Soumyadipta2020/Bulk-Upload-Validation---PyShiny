@@ -728,7 +728,7 @@ def validate_single_file(df, rules_single, file_id_single):
 # Validation: validate_file
 # - Validates a pandas.DataFrame against a `rules` specification.
 # - Returns a dict with keys: `valid` (bool), `message` (str), and optional `warning`.
-def validate_file(df_input, rules, file_id, filename):
+def validate_file(df_input, rules, file_id, filename, remarks: str = None):
     """
     Support:
     - Single DataFrame (existing behavior)
@@ -791,6 +791,17 @@ def validate_file(df_input, rules, file_id, filename):
                 transformed[sheet_name] = add_key_column(
                     df_sheet, filename, key=file_key
                 )
+
+        # Attach Remarks and Last Update timestamp to each transformed sheet
+        try:
+            lu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for tn, tdf in transformed.items():
+                if isinstance(tdf, pd.DataFrame):
+                    tdf["Remarks"] = remarks or ""
+                    tdf["Last Update"] = lu
+                    transformed[tn] = tdf
+        except Exception:
+            pass
 
         test_success = {}
         for sheet_name, s_rules in sheet_rules.items():
@@ -874,6 +885,12 @@ def validate_file(df_input, rules, file_id, filename):
             )
 
         df_to_export = add_key_column(df_to_export, filename)
+        # add user remarks and last update timestamp to exported frame
+        try:
+            df_to_export["Remarks"] = remarks or ""
+            df_to_export["Last Update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
         export_func = rules.get("export_func", None)
         export_path = rules.get("export_path", None)
 
@@ -1478,6 +1495,10 @@ def server(input, output, session):
                         choices=file_type_options,
                         selected="",
                     ),
+                    ui.input_text(
+                        f"remarks_{file_name.replace('.', '_').replace(' ', '_')}", 
+                        label="Remarks (optional)"
+                    ),
                     class_="mb-2",
                 )
             )
@@ -1502,10 +1523,13 @@ def server(input, output, session):
         for file_name in files_data.keys():
             input_id = f"file_type_{file_name.replace('.', '_').replace(' ', '_')}"
             file_type = getattr(input, input_id)()
+            input_id = f"remarks_{file_name.replace('.', '_').replace(' ', '_')}"
+            remarks = getattr(input, input_id)()
             if file_type:
                 assignments[file_type] = {
                     "filename": file_name,
                     "data": files_data[file_name],
+                    "remarks": remarks
                 }
         # Persist assignments and trigger validation of all assigned files
         assigned_files.set(assignments)
@@ -1527,6 +1551,7 @@ def server(input, output, session):
                     validation_rules[file_type],
                     f"{file_type.capitalize()} ({file_info['filename']})",
                     f"{file_info['filename']}",
+                    remarks=file_info.get("remarks", ""),
                 )
         validation_results_val.set(results)
 
