@@ -482,6 +482,10 @@ def validate_single_file(df, rules_single, file_id_single):
         week_cols = [c for c in df.columns if c not in expected_columns]
         col_fmt = transform_config.get("column_format")
         py_col_fmt = _convert_fmt(col_fmt) if col_fmt else None
+        sample_len = _expected_len_from_pyfmt(py_col_fmt) if py_col_fmt else None
+        # Trim candidate column name strings to expected length when possible
+        if sample_len:
+            week_cols = [str(c)[:sample_len] for c in week_cols]
         parsed_cols = []
         for col in week_cols:
             col_str = str(col)
@@ -603,18 +607,11 @@ def validate_single_file(df, rules_single, file_id_single):
             weeks = []
 
         missing = sorted(set(expected_labels) - set(weeks))
-        extra = sorted(set(weeks) - set(expected_labels))
 
         if missing:
             return {
                 "valid": False,
                 "message": f"{file_id_single}: Missing weeks {missing} from expected range {date_range}",
-            }
-        elif extra:
-            return {
-                "valid": False,
-                "warning": f"{file_id_single}: Extra weeks {extra} beyond expected {date_range}",
-                "message": f"{file_id_single}: Sheet is valid ✅ (with warning)",
             }
 
     # Fallback to top-level date_range if present
@@ -679,18 +676,11 @@ def validate_single_file(df, rules_single, file_id_single):
             weeks = []
 
         missing = sorted(set(expected_labels) - set(weeks))
-        extra = sorted(set(weeks) - set(expected_labels))
 
         if missing:
             return {
                 "valid": False,
                 "message": f"{file_id_single}: Missing weeks {missing} from expected range {date_range}",
-            }
-        elif extra:
-            return {
-                "valid": False,
-                "warning": f"{file_id_single}: Extra weeks {extra} beyond expected {date_range}",
-                "message": f"{file_id_single}: Sheet is valid ✅ (with warning)",
             }
 
     # Value checks
@@ -758,6 +748,17 @@ def validate_file(df_input, rules, file_id, filename, remarks: str = None):
             res = validate_single_file(df_sheet, s_rules, f"{file_id} - {sheet_name}")
             if not res.get("valid", False):
                 return res
+            
+            try:
+                skiprows = int(s_rules.get("skiprows", 0) or 0)
+            except Exception:
+                skiprows = 0
+            skiprows = skiprows - 1
+            if skiprows >= 0:
+                df_sheet = df_sheet.iloc[skiprows:].copy().reset_index(drop=True)
+                # Use first row as column names after skipping rows
+                df_sheet.columns = df_sheet.iloc[0]
+                df_sheet = df_sheet.iloc[1:].reset_index(drop=True)
 
             # Transform wide to long if needed
             transform_config = s_rules.get("transform_config", {"type": "none"})
@@ -862,6 +863,18 @@ def validate_file(df_input, rules, file_id, filename, remarks: str = None):
         # Transform if wide format
         transform_config = rules.get("transform_config", {"type": "none"})
         df_to_export = df.copy()
+
+        try:
+            skiprows = int(rules.get("skiprows", 0) or 0)
+        except Exception:
+            skiprows = 0
+        skiprows = skiprows - 1
+        if skiprows >= 0:
+            df_to_export = df_to_export.iloc[skiprows:].copy().reset_index(drop=True)
+            # Use first row as column names after skipping rows
+            df_to_export.columns = df_to_export.iloc[0]
+            df_to_export = df_to_export.iloc[1:].reset_index(drop=True)
+
         if transform_config.get("type") == "columns":
             id_vars = rules["columns"]
             value_vars = [c for c in df.columns if c not in id_vars]
