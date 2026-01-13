@@ -316,7 +316,6 @@ def validate_single_file(df, rules_single, file_id_single):
     # performing validation. This only affects which DataFrame rows are
     # validated; existing validation logic and reported row numbers remain
     # unchanged.
-    print(df)
     try:
         skiprows = int(rules_single.get("skiprows", 0) or 0)
     except Exception:
@@ -324,7 +323,6 @@ def validate_single_file(df, rules_single, file_id_single):
     skiprows = skiprows - 1
     if skiprows >= 0:
         df = df.iloc[skiprows:].copy().reset_index(drop=True)
-        print(df)
         # Use first row as column names after skipping rows
         df.columns = df.iloc[0]
         df = df.iloc[1:].reset_index(drop=True)
