@@ -108,7 +108,7 @@ def add_key_column(df: pd.DataFrame | None, filename: str, key: str = None):
     - If df is a DataFrame: add/assign the 'key' column. If `key` is None a
         new key will be generated. Returns the DataFrame with the 'key' column.
     """
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     generated_key = f"{Path(filename).stem}_{timestamp}"
     if df is None:
         return key or generated_key
@@ -435,7 +435,7 @@ def validate_single_file(df, rules_single, file_id_single):
                     else:
                         # fallback: try to parse using pandas inference
                         pd.to_datetime(df[col].dropna(how="all"), errors="raise")
-            except Exception as e:
+            except Exception:
                 return {
                     "valid": False,
                     "message": (
@@ -1418,8 +1418,9 @@ def server(input, output, session):
         # Provide Excel template for attrition
         buffer = io.BytesIO()
         df = create_sample_file("attrition")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1428,8 +1429,9 @@ def server(input, output, session):
         # Provide Excel template for recruitment
         buffer = io.BytesIO()
         df = create_sample_file("recruitment")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1438,8 +1440,9 @@ def server(input, output, session):
         # Provide Excel template for FTE (long format)
         buffer = io.BytesIO()
         df = create_sample_file("fte")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1448,8 +1451,9 @@ def server(input, output, session):
         # Provide Excel template for FTE (wide format with date columns)
         buffer = io.BytesIO()
         df = create_sample_file("fte_wide")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1458,8 +1462,9 @@ def server(input, output, session):
         # Provide Excel template for Patch Mapping
         buffer = io.BytesIO()
         df = create_sample_file("patch_mapping")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1468,9 +1473,10 @@ def server(input, output, session):
         # Provide Excel template for demand (multi-sheet)
         sample = create_sample_file("demand")  # returns dict of DataFrames
         buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:  # use openpyxl
-            for sheet_name, df in sample.items():
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        if isinstance(sample, dict):
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:  # use openpyxl
+                for sheet_name, df in sample.items():
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
         buffer.seek(0)
         return buffer
 
@@ -1479,8 +1485,9 @@ def server(input, output, session):
         # Provide Excel template for resource allocation (wide format with 3 date columns)
         buffer = io.BytesIO()
         df = create_sample_file("resource_allocation")
-        with pd.ExcelWriter(buffer) as writer:
-            df.to_excel(writer, index=False)
+        if isinstance(df, pd.DataFrame):
+            with pd.ExcelWriter(buffer) as writer:
+                df.to_excel(writer, index=False)
         buffer.seek(0)
         return buffer
 
