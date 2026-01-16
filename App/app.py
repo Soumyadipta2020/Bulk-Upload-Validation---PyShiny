@@ -326,7 +326,7 @@ def validate_single_file(df, rules_single, file_id_single):
         # Use first row as column names after skipping rows
         df.columns = df.iloc[0]
         df = df.iloc[1:].reset_index(drop=True)
-    
+
     # Column names validation
     expected_columns = rules_single["columns"]
     transform_config = rules_single.get("transform_config", {"type": "none"})
@@ -350,6 +350,7 @@ def validate_single_file(df, rules_single, file_id_single):
             .replace("yy", "%y")
             .replace("dd", "%d")
         )
+
     def _expected_len_from_pyfmt(py_fmt: str) -> int | None:
         """Return expected length of a formatted date using `py_fmt` by
         formatting a sample date. Returns None if formatting fails.
@@ -361,13 +362,13 @@ def validate_single_file(df, rules_single, file_id_single):
             return len(sample)
         except Exception:
             return None
-    
+
     for col, expected_type in expected_types.items():
         if col in df.columns:
             try:
                 if expected_type == "numeric":
                     try:
-                        pd.to_numeric(df[col].dropna(how='all'), errors="raise")
+                        pd.to_numeric(df[col].dropna(how="all"), errors="raise")
                     except Exception:
                         first_bad = df[
                             pd.to_numeric(df[col], errors="coerce").isna()
@@ -384,7 +385,7 @@ def validate_single_file(df, rules_single, file_id_single):
                         }
                 elif expected_type == "string":
                     try:
-                        df[col].dropna(how='all').astype(str)
+                        df[col].dropna(how="all").astype(str)
                     except Exception:
                         return {
                             "valid": False,
@@ -401,14 +402,16 @@ def validate_single_file(df, rules_single, file_id_single):
                         sample_len = _expected_len_from_pyfmt(py_fmt)
                         # Prepare series trimmed to expected length when possible
                         s_all = df[col].astype(str)
-                        s = df[col].dropna(how='all').astype(str)
+                        s = df[col].dropna(how="all").astype(str)
                         if sample_len:
                             s = s.str.slice(0, sample_len)
                             s_all = s_all.str.slice(0, sample_len)
                         parsed = pd.to_datetime(s, format=py_fmt, errors="coerce")
                         if parsed.isna().any():
                             # find first offending original row and value
-                            parsed_all = pd.to_datetime(s_all, format=py_fmt, errors="coerce")
+                            parsed_all = pd.to_datetime(
+                                s_all, format=py_fmt, errors="coerce"
+                            )
                             mask = parsed_all.isna() & df[col].notna()
                             if mask.any():
                                 first_bad = mask[mask].index[0]
@@ -431,7 +434,7 @@ def validate_single_file(df, rules_single, file_id_single):
                                 }
                     else:
                         # fallback: try to parse using pandas inference
-                        pd.to_datetime(df[col].dropna(how='all'), errors="raise")
+                        pd.to_datetime(df[col].dropna(how="all"), errors="raise")
             except Exception as e:
                 return {
                     "valid": False,
@@ -505,35 +508,42 @@ def validate_single_file(df, rules_single, file_id_single):
                     "message": f"{file_id_single}: Date column '{col}' is not a valid Monday",
                 }
             parsed_cols.append(d.strftime("%Y-%m-%d"))
-    elif transform_config["type"] == "multi_date_ids":
+    elif transform_config["type"] == "multi_ids":
         # Multiple date ID columns (e.g., date_1, date_2, date_3); city columns are values
-        # Validate each date ID column using its format from date_columns_cfg
+        # If date_columns is specified in rules, validate date format; otherwise just check that ID columns exist
         id_columns = rules_single.get("id_columns", [])
-        for date_col in id_columns:
-            if date_col not in df.columns:
+
+        # Check that all id_columns exist
+        for id_col in id_columns:
+            if id_col not in df.columns:
                 return {
                     "valid": False,
-                    "message": f"{file_id_single}: Missing required ID column '{date_col}'",
+                    "message": f"{file_id_single}: Missing required ID column '{id_col}'",
                 }
-            col_cfg = date_columns_cfg.get(date_col, {})
-            fmt = col_cfg.get("format") if isinstance(col_cfg, dict) else None
-            py_fmt = _convert_fmt(fmt) if fmt else None
-            sample_len = _expected_len_from_pyfmt(py_fmt) if py_fmt else None
-            for idx, val in df[date_col].items():
-                if pd.isna(val):
-                    continue
-                val_str = str(val)
-                if py_fmt:
-                    if sample_len:
-                        val_str = val_str[:sample_len]
-                    d = pd.to_datetime(val_str, format=py_fmt, errors="coerce")
-                else:
-                    d = pd.to_datetime(val_str, errors="coerce")
-                if pd.isna(d):
-                    return {
-                        "valid": False,
-                        "message": f"{file_id_single}: Column '{date_col}' has invalid date '{val_str}' at row {idx + 2}",
-                    }
+
+        # Only validate date format if date_columns is specified in rules
+        if date_columns_cfg:
+            date_cols = list(date_columns_cfg.keys()) if date_columns_cfg else None
+            for date_col in date_cols:
+                col_cfg = date_columns_cfg.get(date_col, {})
+                fmt = col_cfg.get("format") if isinstance(col_cfg, dict) else None
+                py_fmt = _convert_fmt(fmt) if fmt else None
+                sample_len = _expected_len_from_pyfmt(py_fmt) if py_fmt else None
+                for idx, val in df[date_col].items():
+                    if pd.isna(val):
+                        continue
+                    val_str = str(val)
+                    if py_fmt:
+                        if sample_len:
+                            val_str = val_str[:sample_len]
+                        d = pd.to_datetime(val_str, format=py_fmt, errors="coerce")
+                    else:
+                        d = pd.to_datetime(val_str, errors="coerce")
+                    if pd.isna(d):
+                        return {
+                            "valid": False,
+                            "message": f"{file_id_single}: Column '{date_col}' has invalid date '{val_str}' at row {idx + 2}",
+                        }
 
     # Date range validation
     # Parse actual week labels using formats from rules before comparing to
@@ -584,9 +594,10 @@ def validate_single_file(df, rules_single, file_id_single):
             # per-column format when provided, else fall back to transform
             # column_format
             candidate_cols = [c for c in df.columns if c not in expected_columns]
-            parse_fmt = (
-                py_col_fmt
-                or (_convert_fmt(transform_config.get("column_format")) if transform_config.get("column_format") else None)
+            parse_fmt = py_col_fmt or (
+                _convert_fmt(transform_config.get("column_format"))
+                if transform_config.get("column_format")
+                else None
             )
             weeks = []
             for c in candidate_cols:
@@ -748,7 +759,7 @@ def validate_file(df_input, rules, file_id, filename, remarks: str = None):
             res = validate_single_file(df_sheet, s_rules, f"{file_id} - {sheet_name}")
             if not res.get("valid", False):
                 return res
-            
+
             try:
                 skiprows = int(s_rules.get("skiprows", 0) or 0)
             except Exception:
@@ -774,7 +785,7 @@ def validate_file(df_input, rules, file_id, filename, remarks: str = None):
                 transformed[sheet_name] = add_key_column(
                     df_melted, filename, key=file_key
                 )
-            elif transform_config.get("type") == "multi_date_ids":
+            elif transform_config.get("type") == "multi_ids":
                 id_columns = s_rules.get("id_columns", [])
                 value_vars = [c for c in df_sheet.columns if c not in id_columns]
                 df_melted = df_sheet.melt(
@@ -884,7 +895,7 @@ def validate_file(df_input, rules, file_id, filename, remarks: str = None):
                 var_name=rules.get("names_to", "date"),
                 value_name=rules.get("values_to", "value"),
             )
-        elif transform_config.get("type") == "multi_date_ids":
+        elif transform_config.get("type") == "multi_ids":
             # multiple date ID columns; city columns become values
             id_columns = rules.get("id_columns", [])
             value_vars = [c for c in df.columns if c not in id_columns]
@@ -978,14 +989,14 @@ Supported top-level keys for each file-type rule object:
       - `columns`: wide-format where date labels are column headers. When
           used provide `column_format` (user format) and optional
           `require_monday` (bool) to enforce weekly Mondays.
-      - `multi_date_ids`: special wide-format where a set of ID columns are
+      - `multi_ids`: special wide-format where a set of ID columns are
           date fields (e.g., `date_1`, `date_2`, `date_3`) and remaining
           columns are value dimensions (melted to long). Provide
           `id_columns` listing those date ID columns.
 - `names_to` / `values_to` (str): Column names to use for the melted
     variable and value columns when performing wide->long (`melt`). For
     example `names_to: 'week'` and `values_to: 'fte_count'`.
-- `id_columns` (list): For `multi_date_ids` transformations, the list of
+- `id_columns` (list): For `multi_ids` transformations, the list of
     columns that contain date IDs and should be kept as id_vars during melt.
 - `export_path` (str) and `export_func` (str | callable): Where to write
     the exported CSV and which function (or function-name) to call.
@@ -998,7 +1009,7 @@ Notes & examples:
 - `fte_wide` uses `transform_config: {'type': 'columns', 'column_format':
    'yyyy-mm-dd', 'require_monday': True}` because dates are encoded in
    the column headers and must be parsed and validated as Mondays.
-- `resource_allocation` uses `transform_config: {'type': 'multi_date_ids'}`
+- `resource_allocation` uses `transform_config: {'type': 'multi_ids'}`
    with `id_columns: ['date_1','date_2','date_3']` and per-column
    `date_columns` formats; remaining columns are treated as city value
    dimensions and are melted to long on export.
@@ -1110,11 +1121,17 @@ validation_rules = {
     },
     "resource_allocation": {
         # 3 date ID columns with different formats; city columns are dimensions (value columns)
-        "columns": ["date_1", "date_2", "date_3"],
+        "columns": [
+            "date_1", 
+            "date_2", 
+            "date_3", 
+            "skill"
+        ],
         "types": {
             "date_1": "date",
             "date_2": "date",
             "date_3": "date",
+            "skill": "string",
         },
         # per-column date formats for the 3 date ID columns
         "date_columns": {
@@ -1126,10 +1143,16 @@ validation_rules = {
             "date_1": "not_null",
             "date_2": "not_null",
             "date_3": "not_null",
+            "skill": ["MS", "SS"],
         },
         # wide format: multiple date ID columns; other columns are value dimensions
-        "transform_config": {"type": "multi_date_ids"},
-        "id_columns": ["date_1", "date_2", "date_3"],
+        "transform_config": {"type": "multi_ids"},
+        "id_columns": [
+            "date_1", 
+            "date_2", 
+            "date_3", 
+            "skill"
+        ],
         "names_to": "city_name",
         "values_to": "allocation_value",
         "export_path": "./exports/resource_allocation.csv",
@@ -1261,6 +1284,7 @@ def create_sample_file(file_type):
                 "date_1": ["15/01/2025", "15/02/2025", "15/03/2025"],
                 "date_2": ["Jan-25", "Feb-25", "Mar-25"],
                 "date_3": ["01/15/25", "02/15/25", "03/15/25"],
+                "skill": ["MS", "SS", "MS"],
                 "New York": [100.5, 105.2, 98.8],
                 "Los Angeles": [85.0, 88.5, 90.2],
                 "Chicago": [75.5, 78.0, 82.3],
@@ -1507,8 +1531,8 @@ def server(input, output, session):
                         selected="",
                     ),
                     ui.input_text(
-                        f"remarks_{file_name.replace('.', '_').replace(' ', '_')}", 
-                        label="Remarks (optional)"
+                        f"remarks_{file_name.replace('.', '_').replace(' ', '_')}",
+                        label="Remarks (optional)",
                     ),
                     class_="mb-2",
                 )
@@ -1540,7 +1564,7 @@ def server(input, output, session):
                 assignments[file_type] = {
                     "filename": file_name,
                     "data": files_data[file_name],
-                    "remarks": remarks
+                    "remarks": remarks,
                 }
         # Persist assignments and trigger validation of all assigned files
         assigned_files.set(assignments)
