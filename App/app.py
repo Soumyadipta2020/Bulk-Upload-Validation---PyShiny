@@ -14,9 +14,9 @@ import io
 from datetime import datetime
 
 # Local modules
-from helpers import create_modal_with_loading, close_modal
-from samples import create_sample_file
-from validation import validate_file, validation_rules
+from App.helpers import create_modal_with_loading, close_modal
+from App.samples import create_sample_file
+from App.validation import validate_file, validation_rules
 
 # Validation Rules
 # ============================================================================ #

@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from exports import export_validated_file
+from .exports import export_validated_file
 
 
 def add_key_column(df: pd.DataFrame | None, filename: str, key: str = None):
